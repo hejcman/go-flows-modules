@@ -1,4 +1,4 @@
-module ifcNames
+module github.com/hejcman/go-flows-modules/utils/ifcNames
 
 go 1.17
 
