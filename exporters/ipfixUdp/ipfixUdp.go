@@ -5,14 +5,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/CN-TU/go-flows/flows"
+	"github.com/CN-TU/go-flows/util"
+	"github.com/CN-TU/go-ipfix"
 	"log"
 	"net"
 	"os"
 	"strconv"
-
-	"github.com/CN-TU/go-flows/flows"
-	"github.com/CN-TU/go-flows/util"
-	"github.com/CN-TU/go-ipfix"
 )
 
 type ipfixUdpExporter struct {
@@ -30,21 +29,29 @@ type ipfixUdpExporter struct {
 	observationID uint32
 	// allocated is used for temporary storing the IPFix elements.
 	allocated map[string]ipfix.InformationElement
+	// templates stores the IDs of the exported IPFIX templates.
 	templates []int
-	now       flows.DateTimeNanoseconds
 }
+
+/*
+╭╶╶╶╶╶╶╶╶╶╶╶╶╶╶╶╶╶╶╮
+│ Public functions │
+╰╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╯
+*/
 
 // Init is called when initializing the module. It is used to allocate the necessary variables.
 func (e *ipfixUdpExporter) Init() {
 
 	var err error
 
+	// Making the UDP connection to the collector
 	addr := e.dstAddress.String() + ":" + strconv.Itoa(int(e.dstPort))
 	conn, err := net.Dial("udp", addr)
 	if err != nil {
 		log.Fatal("Cannot establish connection with collector: ", err)
 	}
 
+	// Creating the message stream to which we will write.
 	e.allocated = make(map[string]ipfix.InformationElement)
 	e.buffer = new(bytes.Buffer)
 	e.writer, err = ipfix.MakeMessageStream(conn, e.dstPort, e.observationID)
@@ -59,13 +66,11 @@ func (e *ipfixUdpExporter) ID() string {
 }
 
 // Fields is used once to let the exporter know which fields it will export (can be used for writing a CSV header).
-func (e *ipfixUdpExporter) Fields([]string) {
-
-}
+// Whilst empty, this function must be implemented for compatibility with go-flows.
+func (e *ipfixUdpExporter) Fields([]string) {}
 
 // Export is called everytime a flow should be exported.
-func (e *ipfixUdpExporter) Export(template flows.Template, features []interface{}, when flows.DateTimeNanoseconds) {
-
+func (e *ipfixUdpExporter) Export(template flows.Template, features []interface{}, _ flows.DateTimeNanoseconds) {
 	id := template.ID()
 	if id >= len(e.templates) {
 		e.templates = append(e.templates, make([]int, id-len(e.templates)+1)...)
@@ -73,28 +78,31 @@ func (e *ipfixUdpExporter) Export(template flows.Template, features []interface{
 	templateID := e.templates[id]
 	if templateID == 0 {
 		var err error
-		templateID, err = e.writer.AddTemplate(when, template.InformationElements()...)
+		templateID, err = e.writer.AddTemplate(0, template.InformationElements()...)
 		if err != nil {
 			log.Panic(err)
 		}
 		e.templates[id] = templateID
 	}
-
-	err := e.writer.SendData(when, templateID, features...)
+	err := e.writer.SendData(0, templateID, features...)
 	if err != nil {
 		log.Fatal("Unable to send ipfixUdp data: ", err)
 	}
-	e.now = when
-
 }
 
 // Finish is called when the exporter can be destroyed. Write remaining data and wait until shutdown.
 func (e *ipfixUdpExporter) Finish() {
-	err := e.writer.Flush(e.now)
+	err := e.writer.Flush(0)
 	if err != nil {
 		log.Fatal("Unable to flush ipfixUdp data: ", err)
 	}
 }
+
+/*
+╭╶╶╶╶╶╶╶╶╶╶╶╶╶╶╶╶╶╶╶╮
+│ Private functions │
+╰╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╯
+*/
 
 // newIpfixUdpExporter parses the arguments passed by the user and prepares the default values for the exporter module.
 func newIpfixUdpExporter(args []string) (arguments []string, ret util.Module, err error) {
@@ -157,6 +165,12 @@ Flags:
         The ID of this exporter.
 `, name, name)
 }
+
+/*
+╭╶╶╶╶╶╶╶╶╶╶╶╶╶╶╶╮
+│ Init function │
+╰╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╯
+*/
 
 func init() {
 	flows.RegisterExporter(
